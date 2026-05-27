@@ -12,7 +12,7 @@ export default async function handler(req, res) {
       : "přidej aviváž do nákupu";
 
     const ai = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -49,9 +49,10 @@ ${message}
     );
 
     const aiData = await ai.json();
-    return res.status(200).json({
-  rawGeminiResponse: aiData
-});
+
+const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+const cleaned = text.replace(/```json|```/g, "").trim();
+const parsed = JSON.parse(cleaned);
     const cleaned = text.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
 
