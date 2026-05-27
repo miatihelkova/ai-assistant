@@ -6,11 +6,23 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  // CORS pro testování z Hoppscotch / budoucího frontendu
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
+    const body =
+      typeof req.body === "string"
+        ? JSON.parse(req.body || "{}")
+        : req.body || {};
+
     const message =
-      req.method === "POST"
-        ? req.body?.message
-        : "přidej aviváž do nákupu";
+      body.message || "přidej aviváž do nákupu";
 
     const ai = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -69,17 +81,25 @@ ${message}
       if (action.type === "task") {
         await supabase
           .from("tasks")
-          .insert([{ title: action.title, status: "open", priority: "normal" }]);
+          .insert([
+            {
+              title: action.title,
+              status: "open",
+              priority: "normal"
+            }
+          ]);
       }
 
       if (action.type === "health") {
-        await supabase.from("health").insert([
-          {
-            type: action.subtype,
-            value: action.value,
-            date: new Date()
-          }
-        ]);
+        await supabase
+          .from("health")
+          .insert([
+            {
+              type: action.subtype,
+              value: action.value,
+              date: new Date()
+            }
+          ]);
       }
     }
 
