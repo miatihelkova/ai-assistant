@@ -220,9 +220,14 @@ ${message}
     }
   );
 
-  const aiData = await ai.json();
-  const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const cleaned = text.replace(/```json|```/g, "").trim();
+const aiData = await ai.json();
+const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-  return JSON.parse(cleaned);
+return {
+  debug: true,
+  rawText: text,
+  rawGeminiResponse: aiData,
+  actions: [],
+  response: "Debug režim"
+};
 }
