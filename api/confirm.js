@@ -41,6 +41,36 @@ export default async function handler(req, res) {
       });
     }
 
+    const action = pending.payload;
+    const executed = [];
+
+    if (action.type === "plan_change") {
+      const { data, error } = await supabase
+        .from("tasks")
+        .insert([
+          {
+            title: action.title || "Upravit plán",
+            status: "open",
+            priority: "normal"
+          }
+        ])
+        .select();
+
+      if (error) {
+        executed.push({
+          type: "task",
+          saved: false,
+          error: error.message
+        });
+      } else {
+        executed.push({
+          type: "task",
+          saved: true,
+          data
+        });
+      }
+    }
+
     await supabase
       .from("pending_actions")
       .update({ status: "confirmed" })
@@ -48,8 +78,9 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: "Akce potvrzena.",
-      confirmedAction: pending.payload
+      message: "Akce potvrzena a provedena.",
+      confirmedAction: action,
+      executed
     });
   } catch (err) {
     return res.status(500).json({
