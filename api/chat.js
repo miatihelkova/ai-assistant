@@ -23,9 +23,6 @@ export default async function handler(req, res) {
     const message = body.message || "přidej aviváž do nákupu";
 
     const aiResult = await getAiActions(message);
-
-    return res.status(200).json(aiResult);
-
     const savedActions = [];
 
     for (const action of aiResult.actions || []) {
@@ -222,14 +219,9 @@ ${message}
     }
   );
 
-const aiData = await ai.json();
-const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const aiData = await ai.json();
+  const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const cleaned = text.replace(/```json|```/g, "").trim();
 
-return {
-  debug: true,
-  rawText: text,
-  rawGeminiResponse: aiData,
-  actions: [],
-  response: "Debug režim"
-};
+  return JSON.parse(cleaned);
 }
