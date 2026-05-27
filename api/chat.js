@@ -24,7 +24,42 @@ export default async function handler(req, res) {
     const savedActions = [];
 
     for (const action of aiResult.actions || []) {
-      if (action.requires_confirmation) continue;
+      if (action.requires_confirmation) {
+  const token =
+    Math.random().toString(36).substring(2, 10) +
+    Date.now().toString(36);
+
+  const { data, error } = await supabase
+    .from("pending_actions")
+    .insert([
+      {
+        type: action.type,
+        payload: action,
+        status: "pending",
+        confirmation_token: token
+      }
+    ])
+    .select();
+
+  if (error) {
+    savedActions.push({
+      ...action,
+      saved: false,
+      pending: true,
+      error: error.message
+    });
+  } else {
+    savedActions.push({
+      ...action,
+      saved: true,
+      pending: true,
+      confirmation_token: token,
+      data
+    });
+  }
+
+  continue;
+}
 
       if (action.type === "shopping") {
         const { data, error } = await supabase
