@@ -24,6 +24,8 @@ export default async function handler(req, res) {
 
     const aiResult = await getAiActions(message);
 
+    return res.status(200).json(aiResult);
+
     const savedActions = [];
 
     for (const action of aiResult.actions || []) {
