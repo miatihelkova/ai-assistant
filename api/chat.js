@@ -1,37 +1,40 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
-
 export default async function handler(req, res) {
-  // testovací akce
-  const action = {
-    type: "shopping",
-    item: "aviváž"
-  };
+  try {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Missing Supabase environment variables"
+      });
+    }
 
-  // zápis do Supabase
-  const { data, error } = await supabase
-    .from("shopping")
-    .insert([
-      {
-        item: action.item,
-        status: "open"
-      }
-    ]);
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_KEY
+    );
 
-  if (error) {
+    const { data, error } = await supabase
+      .from("shopping")
+      .insert([{ item: "aviváž", status: "open" }])
+      .select();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Položka přidána do nákupu",
+      data
+    });
+  } catch (err) {
     return res.status(500).json({
       success: false,
-      error
+      error: err.message
     });
   }
-
-  return res.status(200).json({
-    success: true,
-    message: "Položka přidána do nákupu",
-    data
-  });
 }
