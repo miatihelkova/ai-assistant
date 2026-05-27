@@ -49,7 +49,9 @@ ${message}
     );
 
     const aiData = await ai.json();
-    const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    return res.status(200).json({
+  rawGeminiResponse: aiData
+});
     const cleaned = text.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
 
