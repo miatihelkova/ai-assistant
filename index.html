@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <title>AI Assistant</title>
+
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -93,6 +95,11 @@
       cursor: pointer;
     }
 
+    .confirm-button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
     .input-area {
       background: white;
       border-radius: 20px;
@@ -150,31 +157,62 @@
     }
   </style>
 </head>
+
 <body>
   <div class="app">
+
     <header>
       <h1>AI asistent</h1>
-      <div class="small">Napiš přirozeně, co se stalo nebo co potřebuješ.</div>
-      <div class="version">index v2.2</div>
+
+      <div class="small">
+        Napiš přirozeně, co se stalo nebo co potřebuješ.
+      </div>
+
+      <div class="version">
+        index v3.0
+      </div>
     </header>
 
     <div class="quick-actions">
-      <button onclick="quickSend('vypila jsem 250 ml vody')">+250 ml vody</button>
-      <button onclick="quickSend('přidat úkol ')">+ úkol</button>
-      <button onclick="quickSend('koupit ')">+ nákup</button>
-      <button onclick="quickSend('jak si dnes vedu?')">dnešní stav</button>
+      <button onclick="quickSend('vypila jsem 250 ml vody')">
+        +250 ml vody
+      </button>
+
+      <button onclick="quickSend('přidat úkol ')">
+        + úkol
+      </button>
+
+      <button onclick="quickSend('koupit ')">
+        + nákup
+      </button>
+
+      <button onclick="quickSend('jak si dnes vedu?')">
+        dnešní stav
+      </button>
     </div>
 
     <main id="chat" class="chat">
       <div class="message assistant">
-        Ahoj, jsem připravená. Napiš mi třeba: „vypila jsem litr vody a koupit granule pro kočky“.
+        Ahoj, jsem připravená.
+        Napiš mi třeba:
+        „vypila jsem litr vody a koupit granule pro kočky“.
       </div>
     </main>
 
     <div class="input-area">
-      <textarea id="message" placeholder="Napiš zprávu..."></textarea>
-      <button id="sendButton" onclick="sendMessage()">Odeslat</button>
+      <textarea
+        id="message"
+        placeholder="Napiš zprávu..."
+      ></textarea>
+
+      <button
+        id="sendButton"
+        onclick="sendMessage()"
+      >
+        Odeslat
+      </button>
     </div>
+
   </div>
 
   <script>
@@ -182,118 +220,189 @@
     const input = document.getElementById("message");
     const sendButton = document.getElementById("sendButton");
 
+    let isSending = false;
+
+    function scrollToBottom() {
+      chat.scrollTop = chat.scrollHeight;
+    }
+
     function addMessage(role, text, meta = "") {
       const bubble = document.createElement("div");
-      bubble.className = "message " + role;
+
+      bubble.className = `message ${role}`;
       bubble.textContent = text;
 
       if (meta) {
         const metaDiv = document.createElement("div");
+
         metaDiv.className = "meta";
         metaDiv.textContent = meta;
+
         bubble.appendChild(metaDiv);
       }
 
       chat.appendChild(bubble);
-      chat.scrollTop = chat.scrollHeight;
+
+      scrollToBottom();
 
       return bubble;
     }
 
-    function buildMeta(savedActions) {
-      const actions = Array.isArray(savedActions) ? savedActions : [];
-
-      const savedCount = actions.filter(action => {
-        return (
-          action.saved === true &&
-          action.pending !== true &&
-          action.duplicate !== true &&
-          action.skipped !== true &&
-          !action.error &&
-          !action.validation_error
-        );
-      }).length;
-
-      const pendingCount = actions.filter(action => {
-        return action.pending === true && action.confirmation_token;
-      }).length;
-
-      const duplicateCount = actions.filter(action => {
-        return action.duplicate === true;
-      }).length;
-
-      const skippedCount = actions.filter(action => {
-        return action.skipped === true && action.duplicate !== true;
-      }).length;
-
-      const errorCount = actions.filter(action => {
-        return action.error || action.validation_error;
-      }).length;
-
-      const metaParts = [];
-
-      if (savedCount > 0) {
-        metaParts.push(`Uloženo: ${savedCount}`);
+    function buildMeta(savedActions = []) {
+      if (!Array.isArray(savedActions)) {
+        return "";
       }
 
-      if (pendingCount > 0) {
-        metaParts.push(`Čeká na potvrzení: ${pendingCount}`);
+      const counts = {
+        saved: 0,
+        pending: 0,
+        duplicate: 0,
+        skipped: 0,
+        errors: 0
+      };
+
+      savedActions.forEach(action => {
+        if (action.error || action.validation_error) {
+          counts.errors++;
+          return;
+        }
+
+        if (action.duplicate === true) {
+          counts.duplicate++;
+          return;
+        }
+
+        if (action.pending === true && action.confirmation_token) {
+          counts.pending++;
+          return;
+        }
+
+        if (action.skipped === true) {
+          counts.skipped++;
+          return;
+        }
+
+        if (action.saved === true) {
+          counts.saved++;
+        }
+      });
+
+      const meta = [];
+
+      if (counts.saved > 0) {
+        meta.push(`Uloženo: ${counts.saved}`);
       }
 
-      if (duplicateCount > 0) {
-        metaParts.push(`Už existuje: ${duplicateCount}`);
+      if (counts.pending > 0) {
+        meta.push(`Čeká na potvrzení: ${counts.pending}`);
       }
 
-      if (skippedCount > 0) {
-        metaParts.push(`Přeskočeno: ${skippedCount}`);
+      if (counts.duplicate > 0) {
+        meta.push(`Už existuje: ${counts.duplicate}`);
       }
 
-      if (errorCount > 0) {
-        metaParts.push(`Chyba u akcí: ${errorCount}`);
+      if (counts.skipped > 0) {
+        meta.push(`Přeskočeno: ${counts.skipped}`);
       }
 
-      return metaParts.join(" • ");
+      if (counts.errors > 0) {
+        meta.push(`Chyba u akcí: ${counts.errors}`);
+      }
+
+      return meta.join(" • ");
+    }
+
+    async function safeJson(response) {
+      try {
+        return await response.json();
+      } catch {
+        return null;
+      }
+    }
+
+    function createLoadingBubble() {
+      const bubble = document.createElement("div");
+
+      bubble.className = "message assistant";
+      bubble.textContent = "Přemýšlím...";
+
+      chat.appendChild(bubble);
+
+      scrollToBottom();
+
+      return bubble;
     }
 
     async function sendMessage() {
       const message = input.value.trim();
 
-      if (!message) return;
+      if (!message || isSending) {
+        return;
+      }
+
+      isSending = true;
 
       addMessage("user", message);
+
       input.value = "";
       sendButton.disabled = true;
 
-      const loadingBubble = document.createElement("div");
-      loadingBubble.className = "message assistant";
-      loadingBubble.textContent = "Přemýšlím...";
-      chat.appendChild(loadingBubble);
-      chat.scrollTop = chat.scrollHeight;
+      const loadingBubble = createLoadingBubble();
 
       try {
+        const controller = new AbortController();
+
+        const timeout = setTimeout(() => {
+          controller.abort();
+        }, 30000);
+
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ message })
+          body: JSON.stringify({ message }),
+          signal: controller.signal
         });
 
-        const data = await response.json();
+        clearTimeout(timeout);
 
-        console.log("AI RESPONSE:", data);
+        const data = await safeJson(response);
 
         loadingBubble.remove();
 
-        if (!response.ok || data.success === false) {
+        if (!response.ok) {
           addMessage(
             "assistant",
-            data.error || "Něco se nepovedlo při zpracování zprávy."
+            data?.error || "Server vrátil chybu."
           );
+
           return;
         }
 
-        const meta = buildMeta(data.savedActions);
+        if (!data || typeof data !== "object") {
+          addMessage(
+            "assistant",
+            "Server vrátil neplatnou odpověď."
+          );
+
+          return;
+        }
+
+        if (data.success === false) {
+          addMessage(
+            "assistant",
+            data.error || "Zpracování se nepovedlo."
+          );
+
+          return;
+        }
+
+        const savedActions = Array.isArray(data.savedActions)
+          ? data.savedActions
+          : [];
+
+        const meta = buildMeta(savedActions);
 
         const assistantBubble = addMessage(
           "assistant",
@@ -301,12 +410,16 @@
           meta
         );
 
-        const pendingActions = (data.savedActions || []).filter(action => {
-          return action.pending === true && action.confirmation_token;
+        const pendingActions = savedActions.filter(action => {
+          return (
+            action.pending === true &&
+            action.confirmation_token
+          );
         });
 
         pendingActions.forEach(action => {
           const button = document.createElement("button");
+
           button.className = "confirm-button";
           button.textContent = "Potvrdit akci";
 
@@ -315,7 +428,7 @@
             button.textContent = "Potvrzuji...";
 
             try {
-              const confirmResponse = await fetch("/api/confirm", {
+              const response = await fetch("/api/confirm", {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json"
@@ -325,37 +438,58 @@
                 })
               });
 
-              const confirmData = await confirmResponse.json();
+              const data = await safeJson(response);
 
-              console.log("CONFIRM RESPONSE:", confirmData);
-
-              if (!confirmResponse.ok || confirmData.success === false) {
+              if (!response.ok || data?.success === false) {
                 button.textContent = "Chyba";
+
                 addMessage(
                   "assistant",
-                  confirmData.error || confirmData.message || "Potvrzení se nepovedlo."
+                  data?.error ||
+                  data?.message ||
+                  "Potvrzení se nepovedlo."
                 );
+
                 return;
               }
 
+              button.textContent = "Potvrzeno";
+
               addMessage(
                 "assistant",
-                confirmData.message || "Akce potvrzena."
+                data?.message || "Akce potvrzena."
               );
 
-              button.textContent = "Potvrzeno";
-            } catch (err) {
+            } catch (error) {
               button.textContent = "Chyba";
-              addMessage("assistant", "Potvrzení se nepovedlo: " + err.message);
+
+              addMessage(
+                "assistant",
+                "Potvrzení se nepovedlo: " + error.message
+              );
             }
           };
 
           assistantBubble.appendChild(button);
         });
+
       } catch (error) {
         loadingBubble.remove();
-        addMessage("assistant", "Chyba: " + error.message);
+
+        if (error.name === "AbortError") {
+          addMessage(
+            "assistant",
+            "Server neodpověděl včas."
+          );
+        } else {
+          addMessage(
+            "assistant",
+            "Chyba: " + error.message
+          );
+        }
+
       } finally {
+        isSending = false;
         sendButton.disabled = false;
         input.focus();
       }
@@ -366,8 +500,11 @@
       input.focus();
     }
 
-    input.addEventListener("keydown", function(event) {
-      if (event.key === "Enter" && !event.shiftKey) {
+    input.addEventListener("keydown", event => {
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey
+      ) {
         event.preventDefault();
         sendMessage();
       }
