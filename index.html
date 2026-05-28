@@ -193,6 +193,54 @@
       return bubble;
     }
 
+    function buildMeta(savedActions) {
+      const actions = savedActions || [];
+
+      const savedCount = actions.filter(action => {
+        return action.saved === true && action.pending !== true;
+      }).length;
+
+      const pendingCount = actions.filter(action => {
+        return action.pending === true;
+      }).length;
+
+      const duplicateCount = actions.filter(action => {
+        return action.duplicate === true;
+      }).length;
+
+      const skippedCount = actions.filter(action => {
+        return action.skipped === true && action.duplicate !== true;
+      }).length;
+
+      const errorCount = actions.filter(action => {
+        return action.error || action.validation_error;
+      }).length;
+
+      const metaParts = [];
+
+      if (savedCount > 0) {
+        metaParts.push(`Uloženo: ${savedCount}`);
+      }
+
+      if (pendingCount > 0) {
+        metaParts.push(`Čeká na potvrzení: ${pendingCount}`);
+      }
+
+      if (duplicateCount > 0) {
+        metaParts.push(`Už existuje: ${duplicateCount}`);
+      }
+
+      if (skippedCount > 0) {
+        metaParts.push(`Přeskočeno: ${skippedCount}`);
+      }
+
+      if (errorCount > 0) {
+        metaParts.push(`Chyba u akcí: ${errorCount}`);
+      }
+
+      return metaParts.join(" • ");
+    }
+
     async function sendMessage() {
       const message = input.value.trim();
 
@@ -221,12 +269,15 @@
 
         loadingBubble.remove();
 
-        const savedCount = data.savedActions ? data.savedActions.length : 0;
-        const pendingCount = (data.savedActions || []).filter(a => a.pending).length;
+        if (!response.ok || data.success === false) {
+          addMessage(
+            "assistant",
+            data.error || "Něco se nepovedlo při zpracování zprávy."
+          );
+          return;
+        }
 
-        let meta = "";
-        if (savedCount > 0) meta += `Uloženo: ${savedCount}`;
-        if (pendingCount > 0) meta += ` • Čeká na potvrzení: ${pendingCount}`;
+        const meta = buildMeta(data.savedActions);
 
         const assistantBubble = addMessage(
           "assistant",
@@ -234,9 +285,9 @@
           meta
         );
 
-        const pendingActions = (data.savedActions || []).filter(
-          a => a.pending && a.confirmation_token
-        );
+        const pendingActions = (data.savedActions || []).filter(action => {
+          return action.pending === true && action.confirmation_token;
+        });
 
         pendingActions.forEach(action => {
           const button = document.createElement("button");
@@ -260,6 +311,15 @@
 
               const confirmData = await confirmResponse.json();
 
+              if (!confirmResponse.ok || confirmData.success === false) {
+                button.textContent = "Chyba";
+                addMessage(
+                  "assistant",
+                  confirmData.error || confirmData.message || "Potvrzení se nepovedlo."
+                );
+                return;
+              }
+
               addMessage(
                 "assistant",
                 confirmData.message || "Akce potvrzena."
@@ -279,6 +339,7 @@
         addMessage("assistant", "Chyba: " + error.message);
       } finally {
         sendButton.disabled = false;
+        input.focus();
       }
     }
 
