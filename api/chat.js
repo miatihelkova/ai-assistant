@@ -5,12 +5,428 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
+function getTodayPragueDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Prague",
+  }).format(new Date());
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function createConfirmationToken() {
+  return (
+    Math.random().toString(36).substring(2, 10) +
+    Date.now().toString(36)
+  );
+}
+
+function validateAction(action) {
+  if (!action || typeof action !== "object") {
+    return {
+      valid: false,
+      reason: "Akce není objekt.",
+    };
+  }
+
+  if (!action.type) {
+    return {
+      valid: false,
+      reason: "Akci chybí type.",
+    };
+  }
+
+  if (action.requires_confirmation) {
+    return {
+      valid: true,
+    };
+  }
+
+  if (action.type === "shopping" && !action.item) {
+    return {
+      valid: false,
+      reason: "Nákupní akci chybí item.",
+    };
+  }
+
+  if (action.type === "health") {
+    if (!action.subtype) {
+      return {
+        valid: false,
+        reason: "Health akci chybí subtype.",
+      };
+    }
+
+    if (typeof action.value !== "number") {
+      return {
+        valid: false,
+        reason: "Health akci chybí číselná value.",
+      };
+    }
+  }
+
+  if (action.type === "task" && !action.title) {
+    return {
+      valid: false,
+      reason: "Task akci chybí title.",
+    };
+  }
+
+  if (action.type === "event") {
+    if (!action.title) {
+      return {
+        valid: false,
+        reason: "Event akci chybí title.",
+      };
+    }
+
+    if (!action.datetime) {
+      return {
+        valid: false,
+        reason: "Event akci chybí datetime.",
+      };
+    }
+  }
+
+  if (action.type === "memory") {
+    if (!action.subtype) {
+      return {
+        valid: false,
+        reason: "Memory akci chybí subtype.",
+      };
+    }
+
+    if (!action.content) {
+      return {
+        valid: false,
+        reason: "Memory akci chybí content.",
+      };
+    }
+  }
+
+  if (action.type === "focus" && !action.content) {
+    return {
+      valid: false,
+      reason: "Focus akci chybí content.",
+    };
+  }
+
+  const allowedTypes = [
+    "shopping",
+    "health",
+    "task",
+    "event",
+    "memory",
+    "focus",
+    "plan_change",
+  ];
+
+  if (!allowedTypes.includes(action.type)) {
+    return {
+      valid: false,
+      reason: `Nepodporovaný typ akce: ${action.type}`,
+    };
+  }
+
+  return {
+    valid: true,
+  };
+}
+
+async function savePendingAction(action) {
+  const token = createConfirmationToken();
+
+  const { data, error } = await supabase
+    .from("pending_actions")
+    .insert([
+      {
+        type: action.type,
+        payload: action,
+        status: "pending",
+        confirmation_token: token,
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      pending: true,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    pending: true,
+    confirmation_token: token,
+    data,
+  };
+}
+
+async function saveShopping(action) {
+  const { data, error } = await supabase
+    .from("shopping")
+    .insert([
+      {
+        item: action.item,
+        status: "open",
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    data,
+  };
+}
+
+async function saveHealth(action, today) {
+  const { data, error } = await supabase
+    .from("health")
+    .insert([
+      {
+        type: action.subtype,
+        value: action.value,
+        note: action.note || null,
+        date: today,
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    data,
+  };
+}
+
+async function saveTask(action) {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert([
+      {
+        title: action.title,
+        status: "open",
+        priority: action.priority || "normal",
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    data,
+  };
+}
+
+async function saveEvent(action) {
+  const { data, error } = await supabase
+    .from("events")
+    .insert([
+      {
+        title: action.title,
+        datetime: action.datetime,
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    data,
+  };
+}
+
+async function saveMemory(action) {
+  const { data, error } = await supabase
+    .from("memory")
+    .insert([
+      {
+        type: action.subtype,
+        content: action.content,
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    data,
+  };
+}
+
+async function saveFocus(action, today) {
+  const normalizedNewFocus = normalizeText(action.content);
+
+  const { data: existingFocus, error: fetchError } = await supabase
+    .from("focus_today")
+    .select("id, content")
+    .eq("date", today)
+    .eq("completed", false);
+
+  if (fetchError) {
+    return {
+      ...action,
+      saved: false,
+      error: fetchError.message,
+    };
+  }
+
+  const duplicate = (existingFocus || []).find((item) => {
+    return normalizeText(item.content) === normalizedNewFocus;
+  });
+
+  if (duplicate) {
+    return {
+      ...action,
+      saved: false,
+      skipped: true,
+      duplicate: true,
+      reason: "Tento focus už dnes existuje.",
+      existing_id: duplicate.id,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("focus_today")
+    .insert([
+      {
+        type: "focus",
+        content: action.content,
+        priority: action.priority || "normal",
+        source: action.source || "ai",
+        completed: false,
+        date: today,
+      },
+    ])
+    .select();
+
+  if (error) {
+    return {
+      ...action,
+      saved: false,
+      error: error.message,
+    };
+  }
+
+  return {
+    ...action,
+    saved: true,
+    data,
+  };
+}
+
+async function executeAction(action, today) {
+  const validation = validateAction(action);
+
+  if (!validation.valid) {
+    return {
+      ...action,
+      saved: false,
+      skipped: true,
+      validation_error: validation.reason,
+    };
+  }
+
+  if (action.requires_confirmation) {
+    return await savePendingAction(action);
+  }
+
+  if (action.type === "shopping") {
+    return await saveShopping(action);
+  }
+
+  if (action.type === "health") {
+    return await saveHealth(action, today);
+  }
+
+  if (action.type === "task") {
+    return await saveTask(action);
+  }
+
+  if (action.type === "event") {
+    return await saveEvent(action);
+  }
+
+  if (action.type === "memory") {
+    return await saveMemory(action);
+  }
+
+  if (action.type === "focus") {
+    return await saveFocus(action, today);
+  }
+
+  return {
+    ...action,
+    saved: false,
+    skipped: true,
+    reason: "Akce nebyla zpracována.",
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  if (req.method !== "POST" && req.method !== "GET") {
+    return res.status(405).json({
+      success: false,
+      error: "Method not allowed",
+    });
+  }
 
   try {
     const body =
@@ -19,181 +435,43 @@ export default async function handler(req, res) {
         : req.body || {};
 
     const message = body.message || "přidej aviváž do nákupu";
+    const today = getTodayPragueDate();
 
-    const aiResult = await getAiActions(message);
+    const aiResult = await getAiActions(message, today);
     const savedActions = [];
 
     for (const action of aiResult.actions || []) {
-      if (action.requires_confirmation) {
-        const token =
-          Math.random().toString(36).substring(2, 10) +
-          Date.now().toString(36);
-
-        const { data, error } = await supabase
-          .from("pending_actions")
-          .insert([
-            {
-              type: action.type,
-              payload: action,
-              status: "pending",
-              confirmation_token: token
-            }
-          ])
-          .select();
-
-        if (error) {
-          savedActions.push({
-            ...action,
-            saved: false,
-            pending: true,
-            error: error.message
-          });
-        } else {
-          savedActions.push({
-            ...action,
-            saved: true,
-            pending: true,
-            confirmation_token: token,
-            data
-          });
-        }
-
-        continue;
-      }
-
-      if (action.type === "shopping") {
-        const { data, error } = await supabase
-          .from("shopping")
-          .insert([{ item: action.item, status: "open" }])
-          .select();
-
-        if (error) {
-          savedActions.push({ ...action, saved: false, error: error.message });
-        } else {
-          savedActions.push({ ...action, saved: true, data });
-        }
-      }
-
-      if (action.type === "health") {
-        const { data, error } = await supabase
-          .from("health")
-          .insert([
-            {
-              type: action.subtype,
-              value: action.value,
-              note: action.note || null,
-              date: new Date()
-            }
-          ])
-          .select();
-
-        if (error) {
-          savedActions.push({ ...action, saved: false, error: error.message });
-        } else {
-          savedActions.push({ ...action, saved: true, data });
-        }
-      }
-
-      if (action.type === "task") {
-        const { data, error } = await supabase
-          .from("tasks")
-          .insert([
-            {
-              title: action.title,
-              status: "open",
-              priority: action.priority || "normal"
-            }
-          ])
-          .select();
-
-        if (error) {
-          savedActions.push({ ...action, saved: false, error: error.message });
-        } else {
-          savedActions.push({ ...action, saved: true, data });
-        }
-      }
-
-      if (action.type === "event") {
-        const { data, error } = await supabase
-          .from("events")
-          .insert([
-            {
-              title: action.title,
-              datetime: action.datetime
-            }
-          ])
-          .select();
-
-        if (error) {
-          savedActions.push({ ...action, saved: false, error: error.message });
-        } else {
-          savedActions.push({ ...action, saved: true, data });
-        }
-      }
-
-      if (action.type === "memory") {
-        const { data, error } = await supabase
-          .from("memory")
-          .insert([
-            {
-              type: action.subtype,
-              content: action.content
-            }
-          ])
-          .select();
-
-        if (error) {
-          savedActions.push({ ...action, saved: false, error: error.message });
-        } else {
-          savedActions.push({ ...action, saved: true, data });
-        }
-      }
-
-      if (action.type === "focus") {
-        const { data, error } = await supabase
-          .from("focus_today")
-          .insert([
-            {
-              type: "focus",
-              content: action.content,
-              priority: action.priority || "normal",
-              source: action.source || "ai",
-              completed: false
-            }
-          ])
-          .select();
-
-        if (error) {
-          savedActions.push({ ...action, saved: false, error: error.message });
-        } else {
-          savedActions.push({ ...action, saved: true, data });
-        }
-      }
+      const savedAction = await executeAction(action, today);
+      savedActions.push(savedAction);
     }
 
     return res.status(200).json({
+      success: true,
+      date: today,
       input: message,
       actions: aiResult.actions || [],
       savedActions,
-      response: aiResult.response || ""
+      response: aiResult.response || "",
     });
   } catch (err) {
     return res.status(500).json({
       success: false,
-      error: err.message
+      error: err.message,
     });
   }
 }
 
-async function getAiActions(message) {
+async function getAiActions(message, today) {
   const ai = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         generationConfig: {
-          responseMimeType: "application/json"
+          responseMimeType: "application/json",
         },
         contents: [
           {
@@ -246,7 +524,7 @@ Povolené akce:
 {
   "type": "event",
   "title": "...",
-  "datetime": "2026-05-28T15:00:00",
+  "datetime": "${today}T15:00:00",
   "requires_confirmation": false
 }
 
@@ -284,10 +562,6 @@ Pravidla:
 - Jasná schůzka s datem a časem = event.
 - Jasně řečená dlouhodobá preference = memory.
 - Pokud uživatel explicitně řekne, že je něco důležité, priorita dne nebo hlavní fokus, VŽDY vytvoř focus akci.
-- Příklady focus:
-  - "Dnes je pro mě nejdůležitější dodělat prezentaci"
-  - "Musím dnes dokončit projekt"
-  - "Dnes se chci soustředit na regeneraci"
 - Focus používej pro priority dne, důležité úkoly, wellbeing nebo věci vyžadující pozornost dnes.
 - Pokud uživatel chce přeplánovat den, přesunout trénink, změnit rutinu nebo změnit existující plán, vrať akci typu plan_change s requires_confirmation true.
 - Pokud je potřeba potvrzení, nevracej běžnou ukládací akci. Vrať pouze plan_change nebo akci s requires_confirmation true.
@@ -295,18 +569,18 @@ Pravidla:
 - Pokud si nejsi jistá, actions nech prázdné a zeptej se v response.
 - Odpověz česky.
 
-
 Důležité:
-Dnes je 2026-05-27. Pokud uživatel řekne "zítra", použij datum 2026-05-28.
+Dnes je ${today}.
+Pokud uživatel použije relativní datum jako "zítra", "dnes", "pozítří", přepočítej ho podle dnešního data ${today}.
 
 Zpráva uživatele:
 ${message}
-`
-              }
-            ]
-          }
-        ]
-      })
+`,
+              },
+            ],
+          },
+        ],
+      }),
     }
   );
 
@@ -317,9 +591,17 @@ ${message}
     return {
       actions: [],
       response: "AI nevrátila žádný text.",
-      debug: aiData
+      debug: aiData,
     };
   }
 
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return {
+      actions: [],
+      response: "AI vrátila neplatný JSON. Zkus to prosím formulovat znovu.",
+      debug: text,
+    };
+  }
 }
