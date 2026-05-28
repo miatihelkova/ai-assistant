@@ -25,41 +25,41 @@ export default async function handler(req, res) {
 
     for (const action of aiResult.actions || []) {
       if (action.requires_confirmation) {
-  const token =
-    Math.random().toString(36).substring(2, 10) +
-    Date.now().toString(36);
+        const token =
+          Math.random().toString(36).substring(2, 10) +
+          Date.now().toString(36);
 
-  const { data, error } = await supabase
-    .from("pending_actions")
-    .insert([
-      {
-        type: action.type,
-        payload: action,
-        status: "pending",
-        confirmation_token: token
+        const { data, error } = await supabase
+          .from("pending_actions")
+          .insert([
+            {
+              type: action.type,
+              payload: action,
+              status: "pending",
+              confirmation_token: token
+            }
+          ])
+          .select();
+
+        if (error) {
+          savedActions.push({
+            ...action,
+            saved: false,
+            pending: true,
+            error: error.message
+          });
+        } else {
+          savedActions.push({
+            ...action,
+            saved: true,
+            pending: true,
+            confirmation_token: token,
+            data
+          });
+        }
+
+        continue;
       }
-    ])
-    .select();
-
-  if (error) {
-    savedActions.push({
-      ...action,
-      saved: false,
-      pending: true,
-      error: error.message
-    });
-  } else {
-    savedActions.push({
-      ...action,
-      saved: true,
-      pending: true,
-      confirmation_token: token,
-      data
-    });
-  }
-
-  continue;
-}
 
       if (action.type === "shopping") {
         const { data, error } = await supabase
@@ -149,8 +149,26 @@ export default async function handler(req, res) {
         }
       }
 
-      // plan_change se zatím neukládá.
-      // Vrací se jen jako návrh s requires_confirmation: true.
+      if (action.type === "focus") {
+        const { data, error } = await supabase
+          .from("focus_today")
+          .insert([
+            {
+              type: "focus",
+              content: action.content,
+              priority: action.priority || "normal",
+              source: action.source || "ai",
+              completed: false
+            }
+          ])
+          .select();
+
+        if (error) {
+          savedActions.push({ ...action, saved: false, error: error.message });
+        } else {
+          savedActions.push({ ...action, saved: true, data });
+        }
+      }
     }
 
     return res.status(200).json({
@@ -248,6 +266,15 @@ Povolené akce:
   "requires_confirmation": true
 }
 
+7. focus:
+{
+  "type": "focus",
+  "content": "...",
+  "priority": "high",
+  "source": "ai",
+  "requires_confirmation": false
+}
+
 Pravidla:
 - Přidání nákupu = shopping.
 - Vypitá voda = health subtype water.
@@ -256,6 +283,8 @@ Pravidla:
 - Jednoduchý úkol = task.
 - Jasná schůzka s datem a časem = event.
 - Jasně řečená dlouhodobá preference = memory.
+- Pokud je něco důležité pro dnešek, můžeš vytvořit focus akci.
+- Focus používej pro priority dne, důležité úkoly, wellbeing nebo věci vyžadující pozornost dnes.
 - Pokud uživatel chce přeplánovat den, přesunout trénink, změnit rutinu nebo změnit existující plán, vrať akci typu plan_change s requires_confirmation true.
 - Pokud je potřeba potvrzení, nevracej běžnou ukládací akci. Vrať pouze plan_change nebo akci s requires_confirmation true.
 - Pokud jde o brainstorming, neukládej žádné akce. Vrať actions: [] a v response se zeptej, jestli chce uživatel něco z toho uložit.
