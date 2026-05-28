@@ -36,6 +36,12 @@
       font-size: 14px;
     }
 
+    .version {
+      margin-top: 4px;
+      color: #999;
+      font-size: 12px;
+    }
+
     .chat {
       flex: 1;
       overflow-y: auto;
@@ -149,6 +155,7 @@
     <header>
       <h1>AI asistent</h1>
       <div class="small">Napiš přirozeně, co se stalo nebo co potřebuješ.</div>
+      <div class="version">index v2.2</div>
     </header>
 
     <div class="quick-actions">
@@ -194,14 +201,21 @@
     }
 
     function buildMeta(savedActions) {
-      const actions = savedActions || [];
+      const actions = Array.isArray(savedActions) ? savedActions : [];
 
       const savedCount = actions.filter(action => {
-        return action.saved === true && action.pending !== true;
+        return (
+          action.saved === true &&
+          action.pending !== true &&
+          action.duplicate !== true &&
+          action.skipped !== true &&
+          !action.error &&
+          !action.validation_error
+        );
       }).length;
 
       const pendingCount = actions.filter(action => {
-        return action.pending === true;
+        return action.pending === true && action.confirmation_token;
       }).length;
 
       const duplicateCount = actions.filter(action => {
@@ -267,6 +281,8 @@
 
         const data = await response.json();
 
+        console.log("AI RESPONSE:", data);
+
         loadingBubble.remove();
 
         if (!response.ok || data.success === false) {
@@ -310,6 +326,8 @@
               });
 
               const confirmData = await confirmResponse.json();
+
+              console.log("CONFIRM RESPONSE:", confirmData);
 
               if (!confirmResponse.ok || confirmData.success === false) {
                 button.textContent = "Chyba";
