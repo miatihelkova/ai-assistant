@@ -15,6 +15,9 @@ function normalizeText(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,!?;:()[\]{}"'“”„]/g, "")
     .replace(/\s+/g, " ");
 }
 
@@ -37,6 +40,29 @@ function validateAction(action) {
     return {
       valid: false,
       reason: "Akci chybí type.",
+    };
+  }
+
+  const allowedTypes = [
+    "shopping",
+    "health",
+    "task",
+    "event",
+    "memory",
+    "focus",
+    "plan_change",
+  ];
+
+  if (!allowedTypes.includes(action.type)) {
+    return {
+      valid: false,
+      reason: `Nepodporovaný typ akce: ${action.type}`,
+    };
+  }
+
+  if (action.type === "plan_change") {
+    return {
+      valid: true,
     };
   }
 
@@ -112,23 +138,6 @@ function validateAction(action) {
     return {
       valid: false,
       reason: "Focus akci chybí content.",
-    };
-  }
-
-  const allowedTypes = [
-    "shopping",
-    "health",
-    "task",
-    "event",
-    "memory",
-    "focus",
-    "plan_change",
-  ];
-
-  if (!allowedTypes.includes(action.type)) {
-    return {
-      valid: false,
-      reason: `Nepodporovaný typ akce: ${action.type}`,
     };
   }
 
@@ -308,9 +317,11 @@ async function saveFocus(action, today) {
 
   const { data: existingFocus, error: fetchError } = await supabase
     .from("focus_today")
-    .select("id, content")
+    .select("id, content, normalized_content")
     .eq("date", today)
-    .eq("completed", false);
+    .eq("completed", false)
+    .eq("normalized_content", normalizedNewFocus)
+    .limit(1);
 
   if (fetchError) {
     return {
@@ -320,18 +331,14 @@ async function saveFocus(action, today) {
     };
   }
 
-  const duplicate = (existingFocus || []).find((item) => {
-    return normalizeText(item.content) === normalizedNewFocus;
-  });
-
-  if (duplicate) {
+  if (existingFocus && existingFocus.length > 0) {
     return {
       ...action,
       saved: false,
       skipped: true,
       duplicate: true,
       reason: "Tento focus už dnes existuje.",
-      existing_id: duplicate.id,
+      existing_id: existingFocus[0].id,
     };
   }
 
@@ -341,6 +348,7 @@ async function saveFocus(action, today) {
       {
         type: "focus",
         content: action.content,
+        normalized_content: normalizedNewFocus,
         priority: action.priority || "normal",
         source: action.source || "ai",
         completed: false,
@@ -350,6 +358,16 @@ async function saveFocus(action, today) {
     .select();
 
   if (error) {
+    if (error.code === "23505") {
+      return {
+        ...action,
+        saved: false,
+        skipped: true,
+        duplicate: true,
+        reason: "Tento focus už dnes existuje.",
+      };
+    }
+
     return {
       ...action,
       saved: false,
@@ -376,8 +394,11 @@ async function executeAction(action, today) {
     };
   }
 
-  if (action.requires_confirmation) {
-    return await savePendingAction(action);
+  if (action.requires_confirmation || action.type === "plan_change") {
+    return await savePendingAction({
+      ...action,
+      requires_confirmation: true,
+    });
   }
 
   if (action.type === "shopping") {
@@ -414,14 +435,14 @@ async function executeAction(action, today) {
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  if (req.method !== "POST" && req.method !== "GET") {
+  if (req.method !== "POST") {
     return res.status(405).json({
       success: false,
       error: "Method not allowed",
@@ -434,7 +455,15 @@ export default async function handler(req, res) {
         ? JSON.parse(req.body || "{}")
         : req.body || {};
 
-    const message = body.message || "přidej aviváž do nákupu";
+    const message = body.message;
+
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Missing message",
+      });
+    }
+
     const today = getTodayPragueDate();
 
     const aiResult = await getAiActions(message, today);
@@ -485,6 +514,9 @@ Styl:
 - lehce přátelský tón
 - jednoduché a praktické odpovědi
 - 70 % osobní život, 30 % práce
+- ne moc terapeutický
+- ne moc corporate
+- praktický, lidský, lehce motivační
 
 Vrať POUZE JSON bez markdownu.
 
@@ -563,7 +595,7 @@ Pravidla:
 - Jasně řečená dlouhodobá preference = memory.
 - Pokud uživatel explicitně řekne, že je něco důležité, priorita dne nebo hlavní fokus, VŽDY vytvoř focus akci.
 - Focus používej pro priority dne, důležité úkoly, wellbeing nebo věci vyžadující pozornost dnes.
-- Pokud uživatel chce přeplánovat den, přesunout trénink, změnit rutinu nebo změnit existující plán, vrať akci typu plan_change s requires_confirmation true.
+- Pokud uživatel chce přeplánovat den, přesunout trénink, změnit rutinu, změnit existující plán, změnit rozpočet nebo přesunout schůzku, vrať akci typu plan_change s requires_confirmation true.
 - Pokud je potřeba potvrzení, nevracej běžnou ukládací akci. Vrať pouze plan_change nebo akci s requires_confirmation true.
 - Pokud jde o brainstorming, neukládej žádné akce. Vrať actions: [] a v response se zeptej, jestli chce uživatel něco z toho uložit.
 - Pokud si nejsi jistá, actions nech prázdné a zeptej se v response.
@@ -585,6 +617,15 @@ ${message}
   );
 
   const aiData = await ai.json();
+
+  if (!ai.ok) {
+    return {
+      actions: [],
+      response: "Nepodařilo se spojit s AI modelem.",
+      debug: aiData,
+    };
+  }
+
   const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
   if (!text) {
@@ -596,7 +637,12 @@ ${message}
   }
 
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+
+    return {
+      actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+      response: parsed.response || "",
+    };
   } catch (error) {
     return {
       actions: [],
