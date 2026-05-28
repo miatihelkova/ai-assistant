@@ -75,6 +75,18 @@
       color: #777;
     }
 
+    .confirm-button {
+      margin-top: 10px;
+      width: auto;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: #111;
+      color: white;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
     .input-area {
       background: white;
       border-radius: 20px;
@@ -141,7 +153,7 @@
 
     <div class="quick-actions">
       <button onclick="quickSend('vypila jsem 250 ml vody')">+250 ml vody</button>
-      <button onclick="quickSend('přidat úkol')">+ úkol</button>
+      <button onclick="quickSend('přidat úkol ')">+ úkol</button>
       <button onclick="quickSend('koupit ')">+ nákup</button>
       <button onclick="quickSend('jak si dnes vedu?')">dnešní stav</button>
     </div>
@@ -177,6 +189,8 @@
 
       chat.appendChild(bubble);
       chat.scrollTop = chat.scrollHeight;
+
+      return bubble;
     }
 
     async function sendMessage() {
@@ -214,7 +228,52 @@
         if (savedCount > 0) meta += `Uloženo: ${savedCount}`;
         if (pendingCount > 0) meta += ` • Čeká na potvrzení: ${pendingCount}`;
 
-        addMessage("assistant", data.response || "Hotovo.", meta);
+        const assistantBubble = addMessage(
+          "assistant",
+          data.response || "Hotovo.",
+          meta
+        );
+
+        const pendingActions = (data.savedActions || []).filter(
+          a => a.pending && a.confirmation_token
+        );
+
+        pendingActions.forEach(action => {
+          const button = document.createElement("button");
+          button.className = "confirm-button";
+          button.textContent = "Potvrdit akci";
+
+          button.onclick = async () => {
+            button.disabled = true;
+            button.textContent = "Potvrzuji...";
+
+            try {
+              const confirmResponse = await fetch("/api/confirm", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  confirmation_token: action.confirmation_token
+                })
+              });
+
+              const confirmData = await confirmResponse.json();
+
+              addMessage(
+                "assistant",
+                confirmData.message || "Akce potvrzena."
+              );
+
+              button.textContent = "Potvrzeno";
+            } catch (err) {
+              button.textContent = "Chyba";
+              addMessage("assistant", "Potvrzení se nepovedlo: " + err.message);
+            }
+          };
+
+          assistantBubble.appendChild(button);
+        });
       } catch (error) {
         loadingBubble.remove();
         addMessage("assistant", "Chyba: " + error.message);
