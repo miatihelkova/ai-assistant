@@ -1,0 +1,184 @@
+:root {
+  --color-background: #f6f6f6;
+  --color-surface: #ffffff;
+  --color-text: #111111;
+  --color-muted: #666666;
+  --color-light-muted: #999999;
+  --color-border: #dddddd;
+  --shadow-soft: 0 4px 18px rgba(0, 0, 0, 0.06);
+  --radius-large: 20px;
+  --radius-medium: 14px;
+  --radius-message: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: none;
+}
+
+.app {
+  max-width: 700px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 10px 0 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.small {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.version {
+  margin: 4px 0 0;
+  color: var(--color-light-muted);
+  font-size: 12px;
+}
+
+.quick-actions {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+  padding-bottom: 4px;
+}
+
+.quick-actions button {
+  width: auto;
+  margin: 0;
+  padding: 10px 12px;
+  white-space: nowrap;
+  font-size: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+}
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.message {
+  max-width: 85%;
+  padding: 12px 14px;
+  border-radius: var(--radius-message);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: var(--color-text);
+  color: var(--color-surface);
+  border-bottom-right-radius: 6px;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-bottom-left-radius: 6px;
+  box-shadow: var(--shadow-soft);
+}
+
+.meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #777777;
+}
+
+.confirm-button {
+  width: auto;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.input-area {
+  position: sticky;
+  bottom: 0;
+  padding: 12px;
+  background: var(--color-surface);
+  border-radius: var(--radius-large);
+  box-shadow: 0 -2px 18px rgba(0, 0, 0, 0.06);
+}
+
+textarea {
+  width: 100%;
+  min-height: 70px;
+  max-height: 220px;
+  padding: 12px;
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--color-border);
+  font-size: 16px;
+  resize: none;
+  outline: none;
+}
+
+textarea:focus {
+  border-color: var(--color-text);
+}
+
+#sendButton {
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: var(--radius-medium);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
