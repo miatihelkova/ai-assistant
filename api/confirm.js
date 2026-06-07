@@ -20,10 +20,16 @@ const PROCESSING_STATUS = "processing";
 const CONFIRMED_STATUS = "confirmed";
 const FAILED_STATUS = "failed";
 
+const SUPPORTED_CONFIRMED_ACTION_TYPES = ["plan_change"];
+
 function setCorsHeaders(res) {
   Object.entries(CORS_HEADERS).forEach(([key, value]) => {
     res.setHeader(key, value);
   });
+}
+
+function sendJson(res, statusCode, payload) {
+  return res.status(statusCode).json(payload);
 }
 
 function parseBody(req) {
@@ -39,21 +45,50 @@ function parseBody(req) {
     }
   }
 
-  return req.body;
+  if (typeof req.body === "object") {
+    return req.body;
+  }
+
+  return {};
+}
+
+function getPublicErrorMessage(error, fallback = "Nastala neočekávaná chyba.") {
+  if (!error) {
+    return fallback;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return error.message || fallback;
 }
 
 function normalizeAction(payload) {
-  if (!payload || typeof payload !== "object") {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
   }
 
-  return payload;
+  const type = String(payload.type || "").trim();
+
+  if (!type) {
+    return null;
+  }
+
+  return {
+    ...payload,
+    type,
+  };
+}
+
+function getSafeText(value, fallback = "") {
+  const text = String(value || "").trim();
+
+  return text || fallback;
 }
 
 function getSafeTitle(value, fallback = "Upravit plán") {
-  const title = String(value || "").trim();
-
-  return title || fallback;
+  return getSafeText(value, fallback);
 }
 
 function getSafePriority(value) {
@@ -65,14 +100,68 @@ function getSafePriority(value) {
     : "normal";
 }
 
+function getAlreadyHandledMessage(status) {
+  if (status === CONFIRMED_STATUS) {
+    return "Tahle akce už byla potvrzena.";
+  }
+
+  if (status === PROCESSING_STATUS) {
+    return "Tahle akce se právě zpracovává.";
+  }
+
+  if (status === FAILED_STATUS) {
+    return "Tahle akce už jednou selhala. Vytvoř prosím novou akci.";
+  }
+
+  return "Tahle akce už není dostupná k potvrzení.";
+}
+
+function validateConfirmationToken(token) {
+  const normalizedToken = String(token || "").trim();
+
+  if (!normalizedToken) {
+    return {
+      valid: false,
+      token: "",
+      error: "Missing confirmation_token",
+    };
+  }
+
+  if (normalizedToken.length < 12) {
+    return {
+      valid: false,
+      token: normalizedToken,
+      error: "Neplatný confirmation_token.",
+    };
+  }
+
+  return {
+    valid: true,
+    token: normalizedToken,
+    error: null,
+  };
+}
+
+function isSupportedConfirmedAction(action) {
+  return SUPPORTED_CONFIRMED_ACTION_TYPES.includes(action.type);
+}
+
 async function executePlanChange(action) {
+  const title =
+    getSafeText(action.title) ||
+    getSafeText(action.content) ||
+    getSafeText(action.description) ||
+    "Upravit plán";
+
+  const priority = getSafePriority(action.priority);
+
   const { data, error } = await supabase
     .from("tasks")
     .insert([
       {
-        title: getSafeTitle(action.title),
+        title: getSafeTitle(title),
         status: "open",
-        priority: getSafePriority(action.priority),
+        priority,
       },
     ])
     .select();
@@ -82,7 +171,7 @@ async function executePlanChange(action) {
       success: false,
       executed: [
         {
-          type: "task",
+          type: "plan_change",
           saved: false,
           error: error.message,
         },
@@ -95,7 +184,7 @@ async function executePlanChange(action) {
     success: true,
     executed: [
       {
-        type: "task",
+        type: "plan_change",
         saved: true,
         data,
       },
@@ -112,13 +201,7 @@ async function executeConfirmedAction(action) {
     };
   }
 
-  const handlers = {
-    plan_change: executePlanChange,
-  };
-
-  const handler = handlers[action.type];
-
-  if (!handler) {
+  if (!isSupportedConfirmedAction(action)) {
     return {
       success: false,
       executed: [],
@@ -126,7 +209,15 @@ async function executeConfirmedAction(action) {
     };
   }
 
-  return handler(action);
+  if (action.type === "plan_change") {
+    return executePlanChange(action);
+  }
+
+  return {
+    success: false,
+    executed: [],
+    error: `Chybí handler pro potvrzovanou akci: ${action.type}`,
+  };
 }
 
 async function getPendingActionByToken(token) {
@@ -175,22 +266,6 @@ async function markPendingActionAsFailed(pendingId, errorMessage, result = null)
     .eq("id", pendingId);
 }
 
-function getAlreadyHandledMessage(status) {
-  if (status === CONFIRMED_STATUS) {
-    return "Tahle akce už byla potvrzena.";
-  }
-
-  if (status === PROCESSING_STATUS) {
-    return "Tahle akce se právě zpracovává.";
-  }
-
-  if (status === FAILED_STATUS) {
-    return "Tahle akce už jednou selhala. Vytvoř prosím novou akci.";
-  }
-
-  return "Tahle akce už není dostupná k potvrzení.";
-}
-
 export default async function handler(req, res) {
   setCorsHeaders(res);
 
@@ -199,7 +274,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    return res.status(405).json({
+    return sendJson(res, 405, {
       success: false,
       error: "Method not allowed",
     });
@@ -207,50 +282,52 @@ export default async function handler(req, res) {
 
   try {
     const body = parseBody(req);
-    const token = String(body.confirmation_token || "").trim();
+    const tokenValidation = validateConfirmationToken(body.confirmation_token);
 
-    if (!token) {
-      return res.status(400).json({
+    if (!tokenValidation.valid) {
+      return sendJson(res, 400, {
         success: false,
-        error: "Missing confirmation_token",
+        error: tokenValidation.error,
       });
     }
 
-    const { data: pending, error: fetchError } = await getPendingActionByToken(token);
+    const { data: pending, error: fetchError } =
+      await getPendingActionByToken(tokenValidation.token);
 
     if (fetchError) {
-      return res.status(500).json({
+      return sendJson(res, 500, {
         success: false,
-        error: fetchError.message,
+        error: "Nepodařilo se načíst čekající akci.",
       });
     }
 
     if (!pending) {
-      return res.status(404).json({
+      return sendJson(res, 404, {
         success: false,
-        error: "Pending action not found",
+        error: "Čekající akce nebyla nalezena.",
       });
     }
 
     if (pending.status !== PENDING_STATUS) {
-      return res.status(409).json({
+      return sendJson(res, 409, {
         success: false,
         error: getAlreadyHandledMessage(pending.status),
         status: pending.status,
       });
     }
 
-    const { data: lockedPending, error: lockError } = await lockPendingAction(pending.id);
+    const { data: lockedPending, error: lockError } =
+      await lockPendingAction(pending.id);
 
     if (lockError) {
-      return res.status(500).json({
+      return sendJson(res, 500, {
         success: false,
-        error: lockError.message,
+        error: "Akci se nepodařilo uzamknout.",
       });
     }
 
     if (!lockedPending) {
-      return res.status(409).json({
+      return sendJson(res, 409, {
         success: false,
         error: "Akci se nepodařilo uzamknout. Možná už byla potvrzena.",
       });
@@ -264,27 +341,29 @@ export default async function handler(req, res) {
         "Pending action has invalid payload"
       );
 
-      return res.status(400).json({
+      return sendJson(res, 400, {
         success: false,
-        error: "Pending action has invalid payload",
+        error: "Čekající akce má neplatný obsah.",
       });
     }
 
     const result = await executeConfirmedAction(action);
 
     if (!result.success) {
+      const errorMessage = result.error || "Unknown confirmation error";
+
       await markPendingActionAsFailed(
         lockedPending.id,
-        result.error || "Unknown confirmation error",
+        errorMessage,
         result
       );
 
-      return res.status(400).json({
+      return sendJson(res, 400, {
         success: false,
         message: "Akci se nepodařilo potvrdit.",
         confirmedAction: action,
         executed: result.executed || [],
-        error: result.error || "Unknown confirmation error",
+        error: errorMessage,
       });
     }
 
@@ -294,23 +373,22 @@ export default async function handler(req, res) {
     );
 
     if (updateError) {
-      return res.status(500).json({
+      return sendJson(res, 500, {
         success: false,
-        error: updateError.message,
+        error: "Akce byla provedena, ale nepodařilo se uložit stav potvrzení.",
       });
     }
 
-    return res.status(200).json({
+    return sendJson(res, 200, {
       success: true,
       message: "Akce potvrzena a provedena.",
       confirmedAction: action,
       executed: result.executed || [],
     });
-
   } catch (err) {
-    return res.status(500).json({
+    return sendJson(res, 500, {
       success: false,
-      error: err.message || "Unexpected server error",
+      error: getPublicErrorMessage(err),
     });
   }
 }
